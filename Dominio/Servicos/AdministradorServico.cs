@@ -37,15 +37,28 @@ public class AdministradorServico : IAdministradorServico
         var adm = _contexto.Administradores.FirstOrDefault(a => a.Email == loginDTO.Email);
         if (adm == null) return null;
 
+        bool senhaValida = false;
         try
         {
-            var senhaValida = BCrypt.Net.BCrypt.Verify(loginDTO.Senha, adm.Senha);
-            if (!senhaValida) return null;
+            senhaValida = BCrypt.Net.BCrypt.Verify(loginDTO.Senha, adm.Senha);
         }
         catch
         {
-            return null;
+            // Se a senha armazenada não estiver no formato bcrypt
+            // compara texto plano e, se bater, re-hash e salva no banco.
+            if (loginDTO.Senha == adm.Senha)
+            {
+                adm.Senha = BCrypt.Net.BCrypt.HashPassword(loginDTO.Senha);
+                _contexto.SaveChanges();
+                senhaValida = true;
+            }
+            else
+            {
+                return null;
+            }
         }
+
+        if (!senhaValida) return null;
 
         return adm;
     }
