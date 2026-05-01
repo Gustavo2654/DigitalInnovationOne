@@ -242,35 +242,12 @@ public class Startup
             .WithTags("Administradores");
             #endregion
 
+            #region Veiculos
             // *Mapeando os endpoints relacionados aos veículos*, protegidos por autorização
             //  onde apenas administradores com perfil "adm" ou "editor" podem acessar
-            #region Veiculos
-            static IResult validaDTO(VeiculoDTO veiculoDTO, IValidator<VeiculoDTO> validator)
-            {
-                if (veiculoDTO is null)
-                {
-                    return Results.BadRequest(new { Erro = "Payload de veículo não pode ser nulo." });
-                }
-
-                var validationResult = validator.Validate(veiculoDTO);
-
-                if (!validationResult.IsValid)
-                {
-                    var errors = validationResult.Errors
-                        .GroupBy(e => e.PropertyName)
-                        .ToDictionary(
-                            g => g.Key,
-                            g => g.Select(e => e.ErrorMessage).ToArray()
-                        );
-
-                    return Results.ValidationProblem(errors);
-                }
-
-                return Results.Ok();
-            }
-
             // *Endpoint para criar um novo veículo*, protegido por autorização
             //  onde apenas administradores com perfil "adm" ou "editor" podem acessar
+            
             endpoints.MapPost("/veiculos", ([FromBody] VeiculoDTO veiculoDTO, IValidator<VeiculoDTO> validator, IVeiculoServico veiculoServico) =>
             {
                 var result = validator.Validate(veiculoDTO);
