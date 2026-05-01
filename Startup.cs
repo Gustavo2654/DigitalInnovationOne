@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -47,7 +48,19 @@ public class Startup
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))
             };
         });
+
         services.AddAuthorization();
+        services.AddControllers();
+        services.AddCors(options =>
+        {
+            options.AddPolicy("AllowFrontend",
+            builder =>
+            {
+                builder.WithOrigins("http://localhost:5173")
+                        .AllowAnyHeader()
+                        .AllowAnyMethod();
+            });
+        });
 
         services.AddScoped<IAdministradorServico, AdministradorServico>();
         services.AddScoped<IVeiculoServico, VeiculoServico>();
@@ -79,7 +92,7 @@ public class Startup
             },
             new List<string>()
         }
-            });
+    });
         });
 
         // Configurando o DbContext para usar MySQL, com a string de conexão obtida do arquivo de configuração
@@ -102,6 +115,7 @@ public class Startup
             app.UseSwagger();
             app.UseSwaggerUI();
         }
+        app.UseCors("AllowFrontend");
         app.UseHttpsRedirection();
         app.UseAuthentication();
         app.UseRouting();
@@ -109,6 +123,7 @@ public class Startup
         app.UseEndpoints(endpoints =>
         {
             // Mapeando os endpoints da API
+            endpoints.MapControllers();
             #region Home
             endpoints.MapGet("/", () => Results.Json(new Home())).AllowAnonymous().WithTags("Home");
             #endregion
@@ -232,30 +247,36 @@ public class Startup
             #region Veiculos
             static IResult validaDTO(VeiculoDTO veiculoDTO, IValidator<VeiculoDTO> validator)
             {
+                if (veiculoDTO is null)
+                {
+                    return Results.BadRequest(new { Erro = "Payload de veículo não pode ser nulo." });
+                }
+
                 var validationResult = validator.Validate(veiculoDTO);
 
                 if (!validationResult.IsValid)
                 {
-                    var problemDetails = new HttpValidationProblemDetails(validationResult.ToDictionary())
-                    {
-                        Status = StatusCodes.Status400BadRequest,
-                        Title = "Um ou mais erros de validação ocorreram.",
-                        Detail = "Veja a lista de erros para mais detalhes.",
-                        Instance = "/administradores"
-                    };
-                    return Results.Problem(problemDetails);
+                    var errors = validationResult.Errors
+                        .GroupBy(e => e.PropertyName)
+                        .ToDictionary(
+                            g => g.Key,
+                            g => g.Select(e => e.ErrorMessage).ToArray()
+                        );
+
+                    return Results.ValidationProblem(errors);
                 }
+
                 return Results.Ok();
             }
-            
+
             // *Endpoint para criar um novo veículo*, protegido por autorização
             //  onde apenas administradores com perfil "adm" ou "editor" podem acessar
             endpoints.MapPost("/veiculos", ([FromBody] VeiculoDTO veiculoDTO, IValidator<VeiculoDTO> validator, IVeiculoServico veiculoServico) =>
             {
-                var validationResult = validaDTO(veiculoDTO, validator);
+                var result = validator.Validate(veiculoDTO);
 
-                if (validationResult is not OkResult)
-                    return validationResult;
+                if (!result.IsValid)
+                    return Results.BadRequest(result.Errors);
 
                 var veiculo = new Veiculo
                 {
@@ -266,6 +287,7 @@ public class Startup
                 veiculoServico.Incluir(veiculo);
 
                 return Results.Created($"/veiculos/{veiculo.Id}", veiculo);
+
             })
             .RequireAuthorization(new AuthorizeAttribute { Roles = "adm,editor" })
             .WithTags("Veiculos");
@@ -298,10 +320,10 @@ public class Startup
                 var veiculo = veiculoServico.BuscaPorId(id);
                 if (veiculo == null) return Results.NotFound();
 
-                var resultadoValidacao = validaDTO(veiculoDTO, validator);
+                var result = validator.Validate(veiculoDTO);
 
-                if (resultadoValidacao is not OkResult)
-                    return resultadoValidacao;
+                if (!result.IsValid)
+                    return Results.BadRequest(result.Errors);
 
                 veiculo.Nome = veiculoDTO.Nome;
                 veiculo.Marca = veiculoDTO.Marca;
